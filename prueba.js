@@ -15,8 +15,8 @@ function getChannelName(url) {
     return url.split('@').pop().split('/')[0];
 }
 
-async function getVideoUrls(page, channelUrl, limit = 10) {
-    await page.goto(channelUrl, { waitUntil: 'networkidle2' });
+async function getVideoUrls(page, channelVideos, limit = 10) {
+    await page.goto(channelVideos, { waitUntil: 'networkidle2' });
 
     const videoUrls = [];
     const container = await page.$('#contents');
@@ -50,6 +50,7 @@ async function getVideoData(page, videoUrl) {
         await page.waitForSelector('#above-the-fold', { visible: true });
         await page.click('#bottom-row');  // Asegúrate de que el botón esté visible y habilitado
 
+
         const title = await page.$eval('h1.style-scope.ytd-watch-metadata', el => el.innerText);
 
         let views = await page.$eval('#info span', el => el.innerText)
@@ -59,9 +60,17 @@ async function getVideoData(page, videoUrl) {
 
         const duration = await page.$eval('.ytp-time-duration', el => el.innerText);
 
-        const likes = await page.$eval('#top-level-buttons-computed segmented-like-dislike-button-view-model yt-smartimation div div like-button-view-model toggle-button-view-model button-view-model button div.yt-spec-button-shape-next__button-text-content', el => el.innerText);  
+        const likes = 1; //await page.$eval('#top-level-buttons-computed  segmented-like-dislike-button-view-model  yt-smartimation  div  div  like-button-view-model  toggle-button-view-model  button-view-model  button  div.yt-spec-button-shape-next__button-text-content  yt-animated-rolling-number', el => el.innerText);  
 
+        try{
+            await page.waitForSelector('#primary-button ytd-button-renderer yt-button-shape button', { timeout: 5000 });
+            await page.click('#primary-button  ytd-button-renderer  yt-button-shape  button');
+        }
+        catch(e){
+            console.log("No se pudo hacer click")
+        }
 
+// COMENTARIOS
         let commentsLoaded = false;
 while (!commentsLoaded) {
     await page.evaluate(() => window.scrollBy(0, window.innerHeight));
@@ -69,7 +78,6 @@ while (!commentsLoaded) {
         await page.waitForSelector('#count yt-formatted-string span:nth-child(1)', { timeout: 2000 });
         commentsLoaded = true;
     } catch (e) {
-        // Si el selector no se encuentra en el tiempo definido, se continúa scroll
         console.log("Intentando cargar más contenido...");
     }
 }
@@ -77,7 +85,10 @@ while (!commentsLoaded) {
         const comments = await page.$eval('#count yt-formatted-string span:nth-child(1)', el => el.innerText);
 
 
+
         const description = await page.$eval('#description-inline-expander yt-attributed-string span', el => el.innerText);
+
+        const transcripcion = await page.$eval('#body', el => el.innerText);
         
 
         
@@ -90,7 +101,8 @@ while (!commentsLoaded) {
             "Duración": duration,
             "Likes": likes,
             "Comentarios": comments,
-            "Descripción": description
+            "Descripción": description,
+            "Transcripcion": transcripcion
             
         };
 
@@ -106,13 +118,14 @@ while (!commentsLoaded) {
 }
 
 async function main() {
-    const channelUrl = "https://www.youtube.com/@TipitoLIVE/videos";
+    const channelUrl = "https://www.youtube.com/@TipitoLIVE";
+    const channelVideos = channelUrl+"/videos";
     const browser = await setupBrowser();
     const page = await browser.newPage();
 
     const channelName = getChannelName(channelUrl);
 
-    const videoUrls = await getVideoUrls(page, channelUrl, 1);
+    const videoUrls = await getVideoUrls(page, channelVideos, 1);
 
     const videosData = [];
     for (const url of videoUrls) {
@@ -129,11 +142,11 @@ async function main() {
         fs.mkdirSync(baseDirectory);
     }
 
-    if (!fs.existsSync(videosDirectory)) {
-        fs.mkdirSync(videosDirectory);
-    }
+    // if (!fs.existsSync(videosDirectory)) {
+    //     fs.mkdirSync(videosDirectory);
+    // }
 
-    const filePath = path.join(videosDirectory, `${channelName}_videos_data.xlsx`);
+    const filePath = path.join(baseDirectory, `${channelName}_videos_data.xlsx`);
     if (videosData.length > 0) {  // Solo guarda el archivo si hay datos
         const workbook = new excel.Workbook();
         const worksheet = workbook.addWorksheet('Videos Data');
@@ -147,6 +160,7 @@ async function main() {
             { header: 'Likes', key: 'Likes', width: 15 },
             { header: 'Comentarios', key: 'Comentarios', width: 15 },
             { header: 'Descripción', key: 'Descripción', width: 50 },
+            { header: 'transcripcion', key: 'Transcripcion', width: 50 },
         ];
         
 
