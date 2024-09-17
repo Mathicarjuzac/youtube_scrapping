@@ -7,9 +7,11 @@ const excel = require('exceljs');
 function delay(time) {
     return new Promise(resolve => setTimeout(resolve, time));
 }
+
 function sanitizeFileName(fileName) {
     return fileName.replace(/[<>:"/\\|?*]/g, ''); // Reemplaza caracteres no válidos
 }
+
 async function setupBrowser() {
     const browser = await puppeteer.launch({
         headless: false, // Cambia a true si quieres que no se muestre el navegador
@@ -33,7 +35,7 @@ async function getVideoUrls(page, channelVideos, limit = 10) {
     while (videoUrls.size < limit && attempts < 10) {
         previousHeight = await page.evaluate('document.body.scrollHeight');
         await page.evaluate('window.scrollBy(0, window.innerHeight)');
-        await delay(1000); // Espera de 2 segundos entre scrolls
+        await delay(2000); // Espera de 2 segundos entre scrolls
 
         videoElements = await page.$$('#contents .style-scope.ytd-rich-item-renderer');
 
@@ -41,12 +43,28 @@ async function getVideoUrls(page, channelVideos, limit = 10) {
             try {
                 const linkElement = await videoElements[i].$('a#thumbnail');
                 const url = await linkElement.evaluate(el => el.href);
-                videoUrls.add(url);
+        
+                // Evitar duplicados - Si la URL ya existe, salta a la siguiente iteración
+                if ([...videoUrls].find(video => video.url === url)) {
+                    continue;  // Evita procesar el video nuevamente si ya está en el set
+                }
+        
+                // Extraer la duración del video
+                const durationElement = await videoElements[i].$('ytd-thumbnail-overlay-time-status-renderer');
+                let duration = durationElement
+                    ? await durationElement.evaluate(el => el.innerText.trim())
+                    : 'N/A';  // Duración no disponible
+        
+                // Limpiar la duración de posibles duplicados o saltos de línea
+                duration = duration.split('\n')[0].trim();  // Elimina cualquier salto de línea y toma la primera línea
+        
+                videoUrls.add({ url, duration });  // Guardar tanto la URL como la duración
                 if (videoUrls.size >= limit) break;
             } catch (e) {
-                console.error(`Error extracting URL: ${e}`);
+                console.error(`Error extracting URL or duration: ${e}`);
             }
         }
+        
 
         const currentHeight = await page.evaluate('document.body.scrollHeight');
         if (currentHeight === previousHeight) attempts++;
@@ -57,7 +75,9 @@ async function getVideoUrls(page, channelVideos, limit = 10) {
 }
 
 
-async function getVideoData(page, videoUrl) {
+async function getVideoData(page, videoData) {
+    const { url: videoUrl, duration: videoDuration } = videoData;
+
     await page.goto(videoUrl, { waitUntil: 'networkidle2' });
 
     try {
@@ -70,7 +90,6 @@ async function getVideoData(page, videoUrl) {
         views = views.split(" ",1)[0].replace(",","");
 
         const upload_date = await page.$eval('#info span:nth-of-type(3)', el => el.innerText);
-        const duration = await page.$eval('.ytp-time-duration', el => el.innerText);
 
         let likes = await page.$eval(
             '#top-level-buttons-computed segmented-like-dislike-button-view-model yt-smartimation div div like-button-view-model toggle-button-view-model button-view-model  button', // Selecciona el botón por su clase
@@ -106,27 +125,28 @@ async function getVideoData(page, videoUrl) {
 
         const description = await page.$eval('#description-inline-expander yt-attributed-string span', el => el.innerText);
 
-        const videoData = {
+        const videoDataResult = {
             "Título": title,
             "URL": videoUrl,
             "Vistas": views,
             "Fecha de publicación": upload_date,
-            "Duración": duration,
+            "Duración": videoDuration,  // Guardar la duración aquí
             "Likes": likes,
             "Comentarios": comments,
             "Descripción": description,
-            "Transcripción":transcripcion
+            "Transcripción": transcripcion
         };
 
         console.log(`Data extracted for video: ${title}`);
         
-        return videoData;
+        return videoDataResult;
 
     } catch (e) {
         console.error(`Error extracting data for video: ${e}`);
         return null;
     }
 }
+
 
 
 async function main() {
@@ -137,8 +157,8 @@ async function main() {
 
     const channelName = getChannelName(channelUrl);
 
-    const videoLimit = 3;  // Cambia este valor al número de videos que quieres
-    const videoUrls = await getVideoUrls(page, channelVideos, videoLimit);
+    const videoLimit = 10;  // Cambia este valor al número de videos que quieres
+    const videoDataList = await getVideoUrls(page, channelVideos, videoLimit);
 
     const videosData = [];
     const baseDirectory = path.join(process.cwd(), channelName); // Carpeta base donde se guardará el Excel
@@ -146,15 +166,15 @@ async function main() {
         fs.mkdirSync(baseDirectory, { recursive: true });
     }
 
-    for (const url of videoUrls) {
-        const videoData = await getVideoData(page, url);
-        if (videoData) {
-            videosData.push(videoData);
+    for (const videoData of videoDataList) {
+        const video = await getVideoData(page, videoData);
+        if (video) {
+            videosData.push(video);
             
             // Guardar transcripción en un archivo .txt en la misma carpeta que el archivo Excel
-            const sanitizedTitle = sanitizeFileName(videoData["Título"]);
+            const sanitizedTitle = sanitizeFileName(video["Título"]);
             const transcriptionFilePath = path.join(baseDirectory, `${sanitizedTitle}.txt`);
-            fs.writeFileSync(transcriptionFilePath, videoData["Transcripción"] || "No transcript available");
+            fs.writeFileSync(transcriptionFilePath, video["Transcripción"] || "No transcript available");
             console.log(`Transcription saved to ${transcriptionFilePath}`);
         }
     }
@@ -188,6 +208,5 @@ async function main() {
     await browser.close();
 }
 
-
-
 main().catch(console.error);
+
