@@ -60,8 +60,12 @@ async function getVideoData(page, videoUrl) {
 
         const duration = await page.$eval('.ytp-time-duration', el => el.innerText);
 
-        const likes = await page.$eval('#top-level-buttons-computed segmented-like-dislike-button-view-model yt-smartimation div div like-button-view-model toggle-button-view-model button-view-model button div.yt-spec-button-shape-next__button-text-content', el => el.innerText);  
-
+        let likes = await page.$eval(
+                '#top-level-buttons-computed segmented-like-dislike-button-view-model yt-smartimation div div like-button-view-model toggle-button-view-model button-view-model  button', // Selecciona el botón por su clase
+                el => el.getAttribute('aria-label')  // Extrae el valor del atributo aria-label
+              );
+          
+        likes = likes.replace('Marcar este video con "Me gusta", al igual que otras ','').replace(' personas.','');
        
         await page.waitForSelector('#primary-button ytd-button-renderer yt-button-shape button', { timeout: 5000 });
         await page.click('#primary-button  ytd-button-renderer  yt-button-shape  button');
